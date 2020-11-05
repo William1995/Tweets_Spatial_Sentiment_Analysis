@@ -22,7 +22,7 @@ def create_spark_session():
     spark = SparkSession \
         .builder \
         .appName("Twitter Analysis Pipeline") \
-        .master("local[4]") \
+        .master("local[*]") \
         .config("spark.driver.memory", "4g") \
         .getOrCreate()
     return spark
@@ -121,10 +121,14 @@ class TwitterAnalysisPipeline(object):
         Do sentiment analysis over the text columns, use Vader
         """
 
+        # Broadcast the sentiment analyzer to speed up and avoid millions of the analyzer instances
+        analyzer = SentimentIntensityAnalyzer()
+        sentiment_analyzer_bc = self.spark.sparkContext.broadcast(analyzer)
+
         # Function to clean the tweets
         def tweet_sentiment(text):
-            analyzer = SentimentIntensityAnalyzer()
-            vs = analyzer.polarity_scores(text)
+            analyzer_bc_value = sentiment_analyzer_bc.value
+            vs = analyzer_bc_value.polarity_scores(text)
             return vs
 
         # Register the user-defined function
@@ -143,9 +147,9 @@ class TwitterAnalysisPipeline(object):
         """
         Preprocessing and sentiment analysis over the dataframe
         """
-        self.__determine_state_dataframe()\
-            .__determine_candidate_dataframe()\
-            .__tweet_clean_dataframe()\
+        self.__determine_state_dataframe() \
+            .__determine_candidate_dataframe() \
+            .__tweet_clean_dataframe() \
             .__sentiment_analysis()
         return self.tweets_dataframe
 
@@ -157,9 +161,9 @@ class TwitterAnalysisPipeline(object):
 def main():
     twitter_analysis_pipeline = TwitterAnalysisPipeline('/Users/yuanbincheng/Desktop/TwitterLogs/')
     tweets_dataframe = twitter_analysis_pipeline.whole_pipeline()
-    tweets_dataframe.show(20, False)
     twitter_analysis_pipeline.save_dataframe_parquet('/Users/yuanbincheng/Desktop/TweetProcessedTable/')
-    # tweets_dataframe.printSchema()
+    tweets_dataframe.show(20, False)
+    tweets_dataframe.printSchema()
 
 
 if __name__ == '__main__':
