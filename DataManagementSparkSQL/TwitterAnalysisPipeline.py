@@ -5,27 +5,13 @@ import glob
 import pyspark
 import preprocessor as p
 from pyspark.sql.types import *
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf, col
-from DataManagementSparkSQL.us_state_abbrev import *
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from us_state_abbrev import *
+from CreateSparkSession import create_spark_session
 
 import nltk
 nltk.download('vader_lexicon')
-
-
-def create_spark_session():
-    """
-    Create Spark Session
-    :return:
-    """
-    spark = SparkSession \
-        .builder \
-        .appName("Twitter Analysis Pipeline") \
-        .master("local[*]") \
-        .config("spark.driver.memory", "4g") \
-        .getOrCreate()
-    return spark
 
 
 class TwitterAnalysisPipeline(object):
@@ -34,7 +20,6 @@ class TwitterAnalysisPipeline(object):
         1. Remove the tweets contains no location
         2. Create column indicate the state of the twitter (They have the massive location format!)
         3. Write to the filesystem with parquet table format
-
     """
 
     def __init__(self, event_log_dir: str):
@@ -54,7 +39,6 @@ class TwitterAnalysisPipeline(object):
         self.tweets_dataframe = self.spark.read.json(tweets_log_files) \
                                     .drop('user_id', 'urls', 'country', 'hashtags', 'location type') \
                                     .withColumnRenamed('user_screen _name', 'user_screen_name')
-        # ori_tweets_dataframe.show(50, False)
         print("Total Tweets in the log are: {}".format(self.tweets_dataframe.count()))
         return self.tweets_dataframe
 
@@ -62,7 +46,6 @@ class TwitterAnalysisPipeline(object):
         """
         Determine the state of each tweet, and filter the None
         """
-
         # Broadcast the state abbrev dict to speed up and avoid data shuffle
         us_state_abbrev_bc = self.spark.sparkContext.broadcast(us_state_abbrev)
 
@@ -108,6 +91,8 @@ class TwitterAnalysisPipeline(object):
         # Function to clean the tweets
         def tweet_clean(text):
             # Regex based tweet clean package
+            p.set_options(p.OPT.URL, p.OPT.MENTION, p.OPT.RESERVED,
+                          p.OPT.EMOJI, p.OPT.SMILEY, p.OPT.NUMBER, p.OPT.ESCAPE_CHAR)
             return p.clean(text).strip(" :")
 
         # Register the user-defined function
@@ -154,14 +139,14 @@ class TwitterAnalysisPipeline(object):
         return self.tweets_dataframe
 
     def save_dataframe_parquet(self, target_dir):
-        self.tweets_dataframe.write.partitionBy('state').mode('overwrite').parquet(target_dir)
+        self.tweets_dataframe.repartition(1).write.partitionBy('state').mode('overwrite').parquet(target_dir)
         return self
 
 
 def main():
-    twitter_analysis_pipeline = TwitterAnalysisPipeline('/Users/yuanbincheng/Desktop/TwitterLogs/')
+    twitter_analysis_pipeline = TwitterAnalysisPipeline('/Users/yuanbincheng/Desktop/TwitterLogsDuring/')
     tweets_dataframe = twitter_analysis_pipeline.whole_pipeline()
-    twitter_analysis_pipeline.save_dataframe_parquet('/Users/yuanbincheng/Desktop/TweetProcessedTable/')
+    twitter_analysis_pipeline.save_dataframe_parquet('/Users/yuanbincheng/Desktop/TweetProcessedTableDuring/')
     tweets_dataframe.show(20, False)
     tweets_dataframe.printSchema()
 
